@@ -49,18 +49,6 @@ const CARRIERS=[
   {id:"c1",lat:24.2,lng:58.5,name:"USS أبراهام لينكولن (CVN-72)",icon:"⚓",status:"منتشرة - بحر العرب"},
 ];
 
-const NEWS=[
-  {id:"s1",time:"منذ دقائق",tAr:"ميرسك وهاباغ لويد تعلقان جميع العبور في مضيق هرمز",src:"CNBC",url:"https://www.cnbc.com/2026/03/02/us-iran-live-updates-trump-oil-gold.html",cat:"economy",v:true},
-  {id:"s2",time:"منذ ساعة",tAr:"ترامب: العملية ستستمر 4 أسابيع — الموجة الكبيرة لم تبدأ بعد",src:"CNN",url:"https://www.cnn.com/2026/03/02/middleeast/us-israel-iran-conflict-what-we-know-intl",cat:"politics",v:true},
-  {id:"s3",time:"منذ ساعتين",tAr:"3 مقاتلات F-15 أمريكية سقطت في الكويت بنيران صديقة — الطيارون نجوا",src:"PBS",url:"https://www.pbs.org/newshour/world/u-s-says-kuwait-mistakenly-downed-3-american-jets-during-iranian-attacks-all-crew-safely-ejected",cat:"military",v:true},
-  {id:"s4",time:"منذ 3 ساعات",tAr:"قطر تسقط طائرتي Su-24 إيرانيتين — أول إسقاط طائرات حربية في الصراع",src:"CNN",url:"https://www.cnn.com/2026/03/02/middleeast/us-israel-iran-conflict-what-we-know-intl",cat:"military",v:true},
-  {id:"s5",time:"منذ 4 ساعات",tAr:"أرامكو تغلق مصفاة رأس تنورة بعد هجوم مسيرات إيرانية",src:"CBS",url:"https://www.cbsnews.com/live-updates/us-iran-war-israel-supreme-leader-khamenei-funeral-day-2/",cat:"economy",v:true},
-  {id:"s6",time:"منذ 5 ساعات",tAr:"وزارة الصحة الكويتية تعلن عن الإصابات وتطمئن المواطنين",src:"الجزيرة",url:"https://www.aljazeera.com/news/2026/3/1/us-israel-attacks-on-iran-death-toll-and-injuries-live-tracker",cat:"local",v:true},
-  {id:"s7",time:"منذ 8 ساعات",tAr:"إيران تؤكد مقتل المرشد الأعلى خامنئي وتعلن 40 يوم حداد",src:"إعلام إيراني",url:"https://en.wikipedia.org/wiki/2026_Iran_conflict",cat:"politics",v:true},
-  {id:"s8",time:"منذ 10 ساعات",tAr:"الإمارات: تعاملنا مع 165 صاروخ باليستي و541 مسيرة إيرانية",src:"وزارة الدفاع الإماراتية",url:"https://breakingdefense.com/2026/03/iran-attacks-uae-saudi-missiles-drones-gcc-air-defense/",cat:"military",v:true},
-  {id:"s9",time:"منذ 12 ساعة",tAr:"77 مليون برميل نفط عالقة في الخليج بسبب إغلاق هرمز",src:"CNBC / Kpler",url:"https://www.cnbc.com/2026/03/02/us-iran-live-updates-trump-oil-gold.html",cat:"economy",v:true},
-  {id:"s10",time:"منذ يوم",tAr:"دول الخليج أمام خيار مستحيل: الرد أو السكوت",src:"الجزيرة",url:"https://www.aljazeera.com/features/2026/3/2/after-irans-salvo-hit-their-skylines-will-the-gulf-states-enter-the-war",cat:"politics",v:true},
-];
 
 const GOVT=[
   {id:1,f:"🇰🇼",s:"الكويت — وزارة الدفاع",tAr:"اعتراض 97 صاروخ باليستي و283 مسيرة إيرانية بنجاح",time:"2 مارس",p:"high",url:"https://breakingdefense.com/2026/03/iran-attacks-uae-saudi-missiles-drones-gcc-air-defense/"},
@@ -202,8 +190,9 @@ export default function GulfMonitor(){
   const[flt,setFlt]=useState("all");
   const[now,setNow]=useState(new Date());
   const[banner,setBanner]=useState(true);
-  const[live,setLive]=useState([]);
+  const[news,setNews]=useState([]);
   const[loading,setLoading]=useState(false);
+  const[initialLoading,setInitialLoading]=useState(true);
   const[lastFetch,setLastFetch]=useState(null);
   const[timeSlider,setTimeSlider]=useState(0);
   const[showBases,setShowBases]=useState(true);
@@ -211,6 +200,21 @@ export default function GulfMonitor(){
   const[sirenMode,setSirenMode]=useState(false);
 
   useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t)},[]);
+
+  // Load cached news from KV on mount
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const r=await fetch("/api/news");
+        const d=await r.json();
+        const items=(d.items||[]).filter(i=>i.titleAr&&i.sourceUrl).map((i,x)=>({
+          id:`c${Date.now()}_${x}`,time:"محدّث",tAr:i.titleAr,src:i.source||"",url:i.sourceUrl,cat:i.category||"military",v:false,isLive:false
+        }));
+        if(items.length>0)setNews(items);
+      }catch(e){console.error("Failed to load cached news:",e);}
+      finally{setInitialLoading(false);}
+    })();
+  },[]);
 
   // Conflict started Feb 28, 2026, ~08:00 Kuwait time (UTC+3)
   const conflictStart=new Date("2026-02-28T05:00:00Z");
@@ -223,12 +227,11 @@ export default function GulfMonitor(){
   const doFetch=useCallback(async()=>{
     setLoading(true);
     const items=await fetchLive();
-    if(items.length>0){setLive(items);setLastFetch(new Date());}
+    if(items.length>0){setNews(items);setLastFetch(new Date());}
     setLoading(false);
   },[]);
 
-  const allNews=[...live,...NEWS];
-  const filtered=flt==="all"?allNews:allNews.filter(n=>n.cat===flt);
+  const filtered=flt==="all"?news:news.filter(n=>n.cat===flt);
   const vs=vt=>vt==="false"?{bg:T.gs,c:T.g,b:`1px solid ${T.g}33`}:{bg:T.as,c:T.a,b:`1px solid ${T.a}33`};
 
   return(
@@ -352,23 +355,35 @@ export default function GulfMonitor(){
           <div style={{display:"flex",gap:4,marginBottom:10,overflowX:"auto",paddingBottom:3}}>
             {Object.entries(CATS).map(([k,l])=>(<button key={k} onClick={()=>setFlt(k)} style={{padding:"4px 10px",borderRadius:20,border:flt===k?`1px solid ${T.r}`:`1px solid ${T.br}`,background:flt===k?T.rs:"transparent",color:flt===k?T.r:T.t3,fontSize:10,fontFamily:"inherit",fontWeight:flt===k?600:400,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>))}
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {filtered.map((item,idx)=>(<article key={item.id} style={{background:T.c,border:`1px solid ${item.isLive?T.rb:T.br}`,borderRadius:10,padding:"11px 13px",animation:`fadeUp .3s ease ${idx*.03}s both`}}>
-              {item.isLive&&<div style={{fontSize:8,color:T.r,fontWeight:700,marginBottom:5,display:"flex",alignItems:"center",gap:3}}><span style={{width:4,height:4,borderRadius:"50%",background:T.r,animation:"pulse 1s infinite"}}/>خبر مباشر</div>}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:6}}>
-                <h3 style={{fontSize:13,fontWeight:600,margin:0,lineHeight:1.7,flex:1}}>{item.tAr}</h3>
-                {item.v&&<span style={{background:T.gs,color:T.g,fontSize:8,padding:"2px 6px",borderRadius:8,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>✓ موثق</span>}
-              </div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:T.t3,flexWrap:"wrap",gap:3}}>
-                <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                  <span style={{color:T.t2,fontWeight:500}}>{item.src}</span>
-                  <SL url={item.url} label="المصدر ↗" sm/>
+          {initialLoading?(
+            <div style={{textAlign:"center",padding:"30px 0",color:T.t3,fontSize:12}}>
+              <span style={{display:"inline-block",width:16,height:16,border:`2px solid ${T.br}`,borderTopColor:T.t3,borderRadius:"50%",animation:"spin .8s linear infinite",marginBottom:8}}/>
+              <br/>جاري تحميل الأخبار...
+            </div>
+          ):filtered.length===0?(
+            <div style={{textAlign:"center",padding:"30px 0",color:T.t3,fontSize:12,lineHeight:2}}>
+              لا توجد أخبار محفوظة<br/>
+              <span style={{fontSize:11}}>اضغط "تحديث مباشر" لجلب آخر الأخبار</span>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {filtered.map((item,idx)=>(<article key={item.id} style={{background:T.c,border:`1px solid ${item.isLive?T.rb:T.br}`,borderRadius:10,padding:"11px 13px",animation:`fadeUp .3s ease ${idx*.03}s both`}}>
+                {item.isLive&&<div style={{fontSize:8,color:T.r,fontWeight:700,marginBottom:5,display:"flex",alignItems:"center",gap:3}}><span style={{width:4,height:4,borderRadius:"50%",background:T.r,animation:"pulse 1s infinite"}}/>خبر مباشر</div>}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:6}}>
+                  <h3 style={{fontSize:13,fontWeight:600,margin:0,lineHeight:1.7,flex:1}}>{item.tAr}</h3>
+                  {item.v&&<span style={{background:T.gs,color:T.g,fontSize:8,padding:"2px 6px",borderRadius:8,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>✓ موثق</span>}
                 </div>
-                <span style={{fontSize:9}}>{item.time}</span>
-              </div>
-              <ShareBtn text={item.tAr+" — خليج مونيتور"} url={item.url}/>
-            </article>))}
-          </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:T.t3,flexWrap:"wrap",gap:3}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                    <span style={{color:T.t2,fontWeight:500}}>{item.src}</span>
+                    <SL url={item.url} label="المصدر ↗" sm/>
+                  </div>
+                  <span style={{fontSize:9}}>{item.time}</span>
+                </div>
+                <ShareBtn text={item.tAr+" — خليج مونيتور"} url={item.url}/>
+              </article>))}
+            </div>
+          )}
         </div>)}
 
         {/* MAP */}

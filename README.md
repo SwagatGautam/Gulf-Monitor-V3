@@ -38,7 +38,16 @@ git push -u origin main
 4. Vercel auto-detects Vite — just click **"Deploy"**
 5. Your site is live at `gulf-monitor-XXXX.vercel.app`
 
-### Step 3: Add your API key
+### Step 3: Create Upstash Redis (KV) Store
+
+1. In Vercel dashboard → your project → **Storage** tab
+2. Click **"Create Database"** → select **Redis** (Upstash)
+3. Choose a name (e.g. `gulf-monitor-kv`) and a region
+4. Click **"Create"** — Vercel auto-injects these env vars:
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+
+### Step 4: Add your API key
 
 1. In Vercel dashboard → your project → **Settings** → **Environment Variables**
 2. Add:
@@ -47,11 +56,11 @@ git push -u origin main
 3. Click **Save**
 4. Go to **Deployments** → click **"Redeploy"** on the latest deployment
 
-### Step 4: Test it
+### Step 5: Test it
 
 - Visit your `.vercel.app` URL
-- Click the "تحديث مباشر" (Live Update) button
-- It should fetch fresh news via Claude API
+- Click the "تحديث مباشر" (Live Update) button — fetches fresh news via Claude API
+- Reload the page — the same news persists (loaded from Redis cache)
 
 ---
 
@@ -69,7 +78,7 @@ git push -u origin main
 ```
 gulf-monitor/
 ├── api/
-│   └── news.js          # Serverless function (proxies Claude API)
+│   └── news.js          # Serverless function (Claude API + Redis cache)
 ├── src/
 │   ├── App.jsx          # Main Gulf Monitor component
 │   └── main.jsx         # React entry point
@@ -81,25 +90,33 @@ gulf-monitor/
 └── .gitignore
 ```
 
-## How the Live News Works
+## How the News Works
 
 ```
+Page loads
+        ↓
+Browser → GET /api/news
+        ↓
+Serverless function reads Upstash Redis cache
+        ↓
+Returns cached news instantly (< 100ms)
+        ↓
+Displayed as news cards
+
 User clicks "تحديث مباشر"
         ↓
 Browser → POST /api/news
         ↓
-Vercel serverless function (api/news.js)
-        ↓
-Claude API + Web Search → fetches latest news
+Serverless function → Claude API + Web Search
         ↓
 Parses Arabic headlines + source URLs
         ↓
-Returns JSON to browser
+Stores result in Redis cache + returns to browser
         ↓
 Displayed as "خبر مباشر" cards with source links
 ```
 
-Your API key never leaves the server. Users only see the results.
+Your API key never leaves the server. News persists in Redis across page reloads.
 
 ---
 
@@ -107,20 +124,10 @@ Your API key never leaves the server. Users only see the results.
 
 - **Vercel hosting:** Free tier (100GB bandwidth/month — more than enough)
 - **Domain:** ~$10/year (optional)
+- **Upstash Redis:** Free tier (10,000 commands/day)
 - **Claude API:** ~$0.003 per news refresh (Sonnet with web search)
-  - If 1000 users refresh 5x/day = 5000 calls = ~$15/day
-  - Consider adding caching (Redis/KV) to reduce costs
-
-## Adding Caching (recommended for production)
-
-To avoid hitting the API on every user click, add Vercel KV:
-
-```bash
-# In Vercel dashboard → Storage → Create KV Database
-# Then update api/news.js to cache results for 5 minutes
-```
-
-I can help you implement this if needed.
+  - Only called when someone clicks "Live Update" — page loads use Redis cache
+  - API costs scale with update clicks, not page views
 
 ---
 

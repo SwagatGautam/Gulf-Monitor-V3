@@ -1,17 +1,46 @@
 // /api/news.js — Vercel Serverless Function
 // Proxies requests to Claude API so the API key stays server-side
-// Set ANTHROPIC_API_KEY in Vercel Environment Variables
+// GET: returns cached news from Upstash Redis (fast)
+// POST: fetches fresh news from Claude API, caches in Redis, returns it
+
+import { Redis } from '@upstash/redis';
+
+const KV_KEY = 'latest_news';
+
+function getRedis() {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token });
+}
 
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // ---- GET: return cached news from Redis ----
+  if (req.method === 'GET') {
+    try {
+      const redis = getRedis();
+      if (!redis) return res.status(200).json({ items: [], source: 'no-kv' });
+      const cached = await redis.get(KV_KEY);
+      if (cached && Array.isArray(cached)) {
+        return res.status(200).json({ items: cached, source: 'cache' });
+      }
+      return res.status(200).json({ items: [], source: 'empty' });
+    } catch (err) {
+      console.error('KV read error:', err);
+      return res.status(200).json({ items: [], source: 'error' });
+    }
+  }
+
+  // ---- POST: fetch fresh news, cache it, return it ----
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -39,7 +68,7 @@ export default async function handler(req, res) {
 
 Return ONLY a valid JSON array of up to 5 news items. Each item must have:
 - "titleAr": Arabic headline (translate if English source)
-- "source": Source name  
+- "source": Source name
 - "sourceUrl": Full URL to the original article
 - "category": one of "military", "politics", "economy", "local"
 
@@ -55,31 +84,42 @@ No markdown, no backticks, no explanation. Just the raw JSON array starting with
     }
 
     const data = await response.json();
-    
+
     // Extract text content from response
     const texts = (data.content || [])
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('\n');
-    
+
     const clean = texts.replace(/```json|```/g, '').trim();
     const match = clean.match(/\[[\s\S]*?\]/);
-    
+
     if (match) {
       try {
         const items = JSON.parse(match[0]);
         const validItems = items
           .filter(item => item.titleAr && item.sourceUrl)
           .slice(0, 5);
-        return res.status(200).json({ items: validItems });
+
+        // Cache in Redis (non-blocking — don't fail the request if KV is down)
+        if (validItems.length > 0) {
+          try {
+            const redis = getRedis();
+            if (redis) await redis.set(KV_KEY, validItems);
+          } catch (kvErr) {
+            console.error('KV write error:', kvErr);
+          }
+        }
+
+        return res.status(200).json({ items: validItems, source: 'fresh' });
       } catch (parseError) {
         console.error('JSON parse error:', parseError);
         return res.status(200).json({ items: [] });
       }
     }
-    
+
     return res.status(200).json({ items: [] });
-    
+
   } catch (error) {
     console.error('Server error:', error);
     return res.status(500).json({ error: 'Internal server error' });
