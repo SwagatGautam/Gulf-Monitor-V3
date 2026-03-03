@@ -30,8 +30,18 @@ export default async function handler(req, res) {
       const redis = getRedis();
       if (!redis) return res.status(200).json({ items: [], source: 'no-kv' });
       const cached = await redis.get(KV_KEY);
-      if (cached && Array.isArray(cached)) {
-        return res.status(200).json({ items: cached, source: 'cache' });
+      let cachedItems = cached;
+      if (typeof cached === 'string') {
+        try { cachedItems = JSON.parse(cached); } catch (e) { cachedItems = null; }
+      }
+      if (cachedItems && Array.isArray(cachedItems)) {
+        const now = Date.now();
+        const cutoff = now - 24 * 60 * 60 * 1000; // 24 hours
+        const recent = cachedItems.filter(it => it && it.publishedAt && !isNaN(Date.parse(it.publishedAt)) && Date.parse(it.publishedAt) >= cutoff);
+        if (recent.length > 0) {
+          return res.status(200).json({ items: recent, source: 'cache' });
+        }
+        return res.status(200).json({ items: [], source: 'cache-stale' });
       }
       return res.status(200).json({ items: [], source: 'empty' });
     } catch (err) {
@@ -66,19 +76,24 @@ export default async function handler(req, res) {
           role: 'user',
           content: `Search for the very latest breaking news about the Iran war, focusing on Kuwait, Persian Gulf, Strait of Hormuz, GCC countries.
 
-IMPORTANT URL RULES:
-- Each sourceUrl MUST link to a SPECIFIC standalone article — NOT a live blog, NOT a "live-updates" page
-- NEVER use URLs containing "live-blog", "live-updates", "liveblog", or "live_" in them
-- Each URL must directly correspond to the specific headline — when a user clicks it, the article should match the headline
-- Prefer individual news articles from Reuters, AP, Al Jazeera, BBC, CNN standalone articles, etc.
+      IMPORTANT URL RULES:
+      - Each sourceUrl MUST link to a SPECIFIC standalone article — NOT a live blog, NOT a "live-updates" page
+      - NEVER use URLs containing "live-blog", "live-updates", "liveblog", or "live_" in them
+      - Each URL must directly correspond to the specific headline — when a user clicks it, the article should match the headline
+      - Prefer individual news articles from Reuters, AP, Al Jazeera, BBC, CNN standalone articles, etc.
 
-Return ONLY a valid JSON array of up to 5 news items. Each item must have:
-- "titleAr": Arabic headline (translate if English source)
-- "source": Source name
-- "sourceUrl": Full URL to the SPECIFIC article (no live blogs)
-- "category": one of "military", "politics", "economy", "local"
+      TIMESTAMP & RECENCY RULES:
+      - Each item MUST include a "publishedAt" field containing the article's publication timestamp in ISO 8601 (e.g. 2026-03-03T12:34:56Z).
+      - Only include articles published within the LAST 24 HOURS. If a source does not show a publication time, skip that article.
 
-No markdown, no backticks, no explanation. Just the raw JSON array starting with [ and ending with ].`
+      Return ONLY a valid JSON array of up to 5 news items. Each item must have:
+      - "titleAr": Arabic headline (translate if English source)
+      - "source": Source name
+      - "sourceUrl": Full URL to the SPECIFIC article (no live blogs)
+      - "publishedAt": ISO 8601 timestamp for the article
+      - "category": one of "military", "politics", "economy", "local"
+
+      No markdown, no backticks, no explanation. Just the raw JSON array starting with [ and ending with ].`
         }],
       }),
     });
@@ -103,8 +118,11 @@ No markdown, no backticks, no explanation. Just the raw JSON array starting with
     if (match) {
       try {
         const items = JSON.parse(match[0]);
-        const validItems = items
-          .filter(item => item.titleAr && item.sourceUrl)
+        // Keep items that have required fields and a valid recent publishedAt
+        const now = Date.now();
+        const cutoff = now - 24 * 60 * 60 * 1000; // 24 hours
+        const validItems = (items || [])
+          .filter(item => item && item.titleAr && item.sourceUrl && item.publishedAt && !isNaN(Date.parse(item.publishedAt)) && Date.parse(item.publishedAt) >= cutoff)
           .slice(0, 5);
 
         // Cache in Redis (non-blocking — don't fail the request if KV is down)
