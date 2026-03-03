@@ -64,12 +64,18 @@ export default async function handler(req, res) {
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
           role: 'user',
-          content: `Search for the very latest breaking news about the Iran war in the last 2-3 hours, focusing on Kuwait, Persian Gulf, Strait of Hormuz, GCC countries.
+          content: `Search for the very latest breaking news about the Iran war, focusing on Kuwait, Persian Gulf, Strait of Hormuz, GCC countries.
+
+IMPORTANT URL RULES:
+- Each sourceUrl MUST link to a SPECIFIC standalone article — NOT a live blog, NOT a "live-updates" page
+- NEVER use URLs containing "live-blog", "live-updates", "liveblog", or "live_" in them
+- Each URL must directly correspond to the specific headline — when a user clicks it, the article should match the headline
+- Prefer individual news articles from Reuters, AP, Al Jazeera, BBC, CNN standalone articles, etc.
 
 Return ONLY a valid JSON array of up to 5 news items. Each item must have:
 - "titleAr": Arabic headline (translate if English source)
 - "source": Source name
-- "sourceUrl": Full URL to the original article
+- "sourceUrl": Full URL to the SPECIFIC article (no live blogs)
 - "category": one of "military", "politics", "economy", "local"
 
 No markdown, no backticks, no explanation. Just the raw JSON array starting with [ and ending with ].`
